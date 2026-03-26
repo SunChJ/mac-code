@@ -21,39 +21,61 @@ Both run the same `agent.py`. Same slash commands. Same web search. Same shell t
 
 ## Quick Start
 
-### Option A: llama.cpp (proven, supports 35B MoE)
+### Option A: llama.cpp + 35B MoE (default — 30 tok/s via SSD paging)
 
 ```bash
 brew install llama.cpp
-pip3 install rich ddgs --break-system-packages
+pip3 install rich ddgs huggingface-hub --break-system-packages
 
-# Download model
+# Download 35B model (10.6 GB — pages from SSD on 16GB Macs)
 mkdir -p ~/models
+python3 -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download('unsloth/Qwen3.5-35B-A3B-GGUF',
+    'Qwen3.5-35B-A3B-UD-IQ2_M.gguf', local_dir='$HOME/models/')
+"
+
+# Start server
+llama-server \
+    --model ~/models/Qwen3.5-35B-A3B-UD-IQ2_M.gguf \
+    --port 8000 --host 127.0.0.1 \
+    --flash-attn on --ctx-size 12288 \
+    --cache-type-k q4_0 --cache-type-v q4_0 \
+    --n-gpu-layers 99 --reasoning off -np 1 -t 4
+
+# Run agent
+python3 agent.py
+```
+
+### Option B: MLX + 9B (64K context, persistent KV cache)
+
+```bash
+pip3 install mlx-lm rich ddgs --break-system-packages
+
+# Start MLX engine (downloads 9B model on first run)
+python3 mlx/mlx_engine.py
+
+# Run agent
+python3 agent.py
+```
+
+### Option C: llama.cpp + 9B (if you want 64K context without MLX)
+
+```bash
+# Download 9B model
 python3 -c "
 from huggingface_hub import hf_hub_download
 hf_hub_download('unsloth/Qwen3.5-9B-GGUF',
     'Qwen3.5-9B-Q4_K_M.gguf', local_dir='$HOME/models/')
 "
 
-# Start server
+# Start server (64K context with quantized KV cache)
 llama-server \
     --model ~/models/Qwen3.5-9B-Q4_K_M.gguf \
     --port 8000 --host 127.0.0.1 \
     --flash-attn on --ctx-size 65536 \
     --cache-type-k q4_0 --cache-type-v q4_0 \
     --n-gpu-layers 99 --reasoning off -t 4
-
-# Run agent
-python3 agent.py
-```
-
-### Option B: MLX (faster, persistent context)
-
-```bash
-pip3 install mlx-lm rich ddgs --break-system-packages
-
-# Start MLX engine (downloads model on first run)
-python3 mlx/mlx_engine.py
 
 # Run agent
 python3 agent.py

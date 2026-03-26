@@ -27,24 +27,24 @@ brew install llama.cpp
 pip3 install huggingface-hub rich --break-system-packages
 ```
 
-### 3. Download the 9B model (recommended — works with agent tools)
+### 3. Download the 35B MoE model (default — 30 tok/s via SSD paging)
 
 ```bash
 mkdir -p ~/models
 python3 -c "
 from huggingface_hub import hf_hub_download
-hf_hub_download('unsloth/Qwen3.5-9B-GGUF',
-    'Qwen3.5-9B-Q4_K_M.gguf', local_dir='$HOME/models/')
+hf_hub_download('unsloth/Qwen3.5-35B-A3B-GGUF',
+    'Qwen3.5-35B-A3B-UD-IQ2_M.gguf', local_dir='$HOME/models/')
 "
 ```
 
-### 4. Optionally download the 35B MoE model (faster reasoning, but no tool calling)
+### 4. Also download the 9B model (64K context, persistent KV cache via MLX)
 
 ```bash
 python3 -c "
 from huggingface_hub import hf_hub_download
-hf_hub_download('unsloth/Qwen3.5-35B-A3B-GGUF',
-    'Qwen3.5-35B-A3B-UD-IQ2_M.gguf', local_dir='$HOME/models/')
+hf_hub_download('unsloth/Qwen3.5-9B-GGUF',
+    'Qwen3.5-9B-Q4_K_M.gguf', local_dir='$HOME/models/')
 "
 ```
 
@@ -65,17 +65,7 @@ cp config.example.json ~/.picoclaw/config.json
 
 ### 7. Start the LLM server
 
-For the 9B model (recommended):
-```bash
-llama-server \
-    --model ~/models/Qwen3.5-9B-Q4_K_M.gguf \
-    --port 8000 --host 127.0.0.1 \
-    --flash-attn on --ctx-size 65536 \
-    --cache-type-k q4_0 --cache-type-v q4_0 \
-    --n-gpu-layers 99 --reasoning off -t 4
-```
-
-For the 35B MoE model:
+For the 35B MoE model (default — 30 tok/s, SSD paging):
 ```bash
 llama-server \
     --model ~/models/Qwen3.5-35B-A3B-UD-IQ2_M.gguf \
@@ -83,6 +73,16 @@ llama-server \
     --flash-attn on --ctx-size 12288 \
     --cache-type-k q4_0 --cache-type-v q4_0 \
     --n-gpu-layers 99 --reasoning off -np 1 -t 4
+```
+
+For the 9B model (64K context, tool calling):
+```bash
+llama-server \
+    --model ~/models/Qwen3.5-9B-Q4_K_M.gguf \
+    --port 8000 --host 127.0.0.1 \
+    --flash-attn on --ctx-size 65536 \
+    --cache-type-k q4_0 --cache-type-v q4_0 \
+    --n-gpu-layers 99 --reasoning off -t 4
 ```
 
 ### 8. Run the agent
@@ -101,11 +101,11 @@ python3 agent.py
 
 ## Architecture
 
-The agent auto-routes between two models:
-- **9B (Q4_K_M)** — 32K context, reliable tool calling, 15-30 tok/s
-- **35B MoE (IQ2_M)** — 8K context, faster reasoning, 30-57 tok/s, no tool calling
+Two models, one agent:
+- **35B MoE (IQ2_M)** — Default. 30 tok/s via SSD paging, 12K context. The breakthrough: a 35B model on a $600 Mac mini.
+- **9B (Q4_K_M)** — 64K context with quantized KV cache. Persistent context via MLX (save/load in 0.0003s, R2 sync).
 
-Questions needing web search or tools route to 9B. Pure reasoning routes to 35B. The swap takes ~20 seconds.
+Both use text-based intent routing (not JSON tool calling). Switch with `/model 9b` or `/model 35b`.
 
 ## Common Issues
 
