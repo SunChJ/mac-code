@@ -19,7 +19,8 @@ Same hardware also runs a 9B model with 64K context (doubled from 32K via quanti
 | **Memory** | Pages from SSD | Fits in RAM |
 | **Persistent KV** | — | Save/load in 0.0003s, R2 sync |
 | **TurboQuant** | — | 4x KV cache compression (0.993 cosine) |
-| **Best for** | Reasoning, deep analysis | Long context, tool calling, cross-device |
+| **Tool calling** | Yes — text routing (8/8 correct at 2.6 bpw) | Yes — text routing |
+| **Best for** | Default agent, reasoning | Long context, persistent memory, cross-device |
 
 Both run the same `agent.py`. Same slash commands. Same web search. Same shell tools.
 
