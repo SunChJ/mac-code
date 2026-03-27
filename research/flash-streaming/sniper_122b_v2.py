@@ -293,10 +293,17 @@ class SniperV2:
             return h
 
         # Project
-        q = (x @ q_w.t()).view(1, self.num_heads, 1, self.head_dim)
-        k = (x @ k_w.t()).view(1, self.num_kv_heads, 1, self.head_dim)
-        v = (x @ v_w.t()).view(1, self.num_kv_heads, 1, self.head_dim)
+        q_full = x @ q_w.t()  # [16384] = 64 heads × 256 dim
+        k_out = x @ k_w.t()   # [512] = 2 KV heads × 256 dim
+        v_out = x @ v_w.t()   # [512]
         del q_w, k_w, v_w
+
+        # attn_output_gate=true: first num_heads are Q, rest are output gate
+        q_dim = self.num_heads * self.head_dim  # 32 × 256 = 8192
+        q = q_full[:q_dim].view(1, self.num_heads, 1, self.head_dim)
+        output_gate = torch.sigmoid(q_full[q_dim:].view(1, self.num_heads, 1, self.head_dim))
+        k = k_out.view(1, self.num_kv_heads, 1, self.head_dim)
+        v = v_out.view(1, self.num_kv_heads, 1, self.head_dim)
 
         # QK-norm
         qn_w = self.pinned.get(f"{attn_prefix}.q_norm.weight")
@@ -326,6 +333,9 @@ class SniperV2:
         attn = torch.matmul(q, k_exp.transpose(-2, -1)) * scale
         attn = F.softmax(attn.float(), dim=-1).to(torch.float16)
         out = torch.matmul(attn, v_exp)
+
+        # Apply output gate
+        out = out * output_gate
 
         # Reshape and project
         out = out.squeeze(2).reshape(1, 1, -1)
