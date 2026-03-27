@@ -8,7 +8,7 @@
  ╚═╝  ╚═╝╚═╝  ╚═══╝  ╚══════╝  chat
 """
 
-import json, sys, os, time, threading, urllib.request, urllib.error
+import json, sys, os, time, threading, urllib.request, urllib.error, codecs
 from collections import deque
 from datetime import datetime
 
@@ -43,6 +43,20 @@ def detect():
         if "35B-A3B" in alias:
             model_name = "Qwen3.5-35B-A3B"
             model_detail = "MoE 34.7B · 3B active · IQ2_M · Metal"
+        elif "27B" in alias:
+            model_name = "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled"
+            if "Q4_K_M" in alias:
+                model_detail = "27B dense · Q4_K_M · Metal"
+            elif "Q4_K_S" in alias:
+                model_detail = "27B dense · Q4_K_S · Metal"
+            elif "Q3_K_M" in alias:
+                model_detail = "27B dense · Q3_K_M · Metal"
+            elif "Q3_K_S" in alias:
+                model_detail = "27B dense · Q3_K_S · Metal"
+            elif "Q2_K" in alias:
+                model_detail = "27B dense · Q2_K · Metal"
+            else:
+                model_detail = "27B dense · GGUF · Metal"
         elif "9B" in alias:
             model_name = "Qwen3.5-9B"
             model_detail = "8.95B dense · Q4_K_M · Metal"
@@ -75,11 +89,13 @@ def stream(msgs):
 
     with urllib.request.urlopen(req, timeout=300) as resp:
         buf = ""
+        decoder = codecs.getincrementaldecoder("utf-8")()
         while True:
-            ch = resp.read(1)
-            if not ch:
+            chunk = resp.read(1024)
+            if not chunk:
+                buf += decoder.decode(b"", final=True)
                 break
-            buf += ch.decode("utf-8", errors="replace")
+            buf += decoder.decode(chunk)
 
             while "\n" in buf:
                 line, buf = buf.split("\n", 1)

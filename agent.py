@@ -3,7 +3,7 @@
 mac code — claude code for your Mac
 """
 
-import json, sys, os, time, subprocess, re, threading, queue
+import json, sys, os, time, subprocess, re, threading, queue, codecs
 import urllib.request, random
 from datetime import datetime
 from pathlib import Path
@@ -75,6 +75,25 @@ MODELS = {
         "detail": "8.95B dense · Q4_K_M · 32K ctx",
         "good_for": "tool calling, long conversations, agent tasks",
     },
+    "27b": {
+        "path": [
+            "~/models/Qwen3.5-27B.Q3_K_S.gguf",
+            "~/models/Qwen3.5-27B.Q2_K.gguf",
+            "~/models/Qwen3.5-27B.Q3_K_M.gguf",
+            "~/models/Qwen3.5-27B.Q4_K_S.gguf",
+            "~/models/Qwen3.5-27B.Q4_K_M.gguf",
+            "~/Downloads/Qwen3.5-27B.Q3_K_S.gguf",
+            "~/Downloads/Qwen3.5-27B.Q2_K.gguf",
+            "~/Downloads/Qwen3.5-27B.Q3_K_M.gguf",
+            "~/Downloads/Qwen3.5-27B.Q4_K_S.gguf",
+            "~/Downloads/Qwen3.5-27B.Q4_K_M.gguf",
+        ],
+        "ctx": 4096,
+        "flags": "--flash-attn on --n-gpu-layers 99 --reasoning auto --reasoning-format deepseek -np 1 -t 4",
+        "name": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled",
+        "detail": "27B dense · GGUF · 4K ctx",
+        "good_for": "coding agent tasks, structured reasoning, tool use",
+    },
     "35b": {
         "path": os.path.expanduser("~/models/Qwen3.5-35B-A3B-UD-IQ2_M.gguf"),
         "ctx": 8192,
@@ -84,6 +103,16 @@ MODELS = {
         "good_for": "reasoning, math, knowledge, fast answers",
     },
 }
+
+def resolve_model_path(path_value):
+    """Allow a model entry to provide multiple candidate paths."""
+    if isinstance(path_value, (list, tuple)):
+        for candidate in path_value:
+            expanded = os.path.expanduser(candidate)
+            if os.path.exists(expanded):
+                return expanded
+        return os.path.expanduser(path_value[0]) if path_value else ""
+    return os.path.expanduser(path_value)
 
 # ── smart routing ─────────────────────────────────
 TOOL_KEYWORDS = [
@@ -388,6 +417,8 @@ def get_current_model():
         alias = d.get("model_alias", "") or d.get("model_path", "")
         if "35B-A3B" in alias:
             return "35b"
+        elif "27B" in alias:
+            return "27b"
         elif "9B" in alias:
             return "9b"
     except Exception:
@@ -397,8 +428,9 @@ def get_current_model():
 def swap_model(target_key):
     """Stop current server and start a new one with the target model."""
     cfg = MODELS[target_key]
-    if not os.path.exists(cfg["path"]):
-        return False, f"Model not found: {cfg['path']}"
+    model_path = resolve_model_path(cfg["path"])
+    if not os.path.exists(model_path):
+        return False, f"Model not found: {model_path}"
 
     # Kill current server
     subprocess.run(["pkill", "-f", "llama-server"], capture_output=True)
@@ -407,10 +439,11 @@ def swap_model(target_key):
     # Start new server
     cmd_list = [
         "llama-server",
-        "--model", cfg["path"],
+        "--model", model_path,
         "--port", "8000",
         "--host", "127.0.0.1",
         "--ctx-size", str(cfg["ctx"]),
+        "--alias", cfg["name"],
     ] + cfg["flags"].split()
     subprocess.Popen(cmd_list, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -515,6 +548,20 @@ def detect_model():
         alias = d.get("model_alias", "") or d.get("model_path", "")
         if "35B-A3B" in alias:
             return "Qwen3.5-35B-A3B", "MoE 34.7B · 3B active · IQ2_M"
+        elif "27B" in alias:
+            if "Q4_K_M" in alias:
+                detail = "27B dense · Q4_K_M"
+            elif "Q4_K_S" in alias:
+                detail = "27B dense · Q4_K_S"
+            elif "Q3_K_M" in alias:
+                detail = "27B dense · Q3_K_M"
+            elif "Q3_K_S" in alias:
+                detail = "27B dense · Q3_K_S"
+            elif "Q2_K" in alias:
+                detail = "27B dense · Q2_K"
+            else:
+                detail = "27B dense · GGUF"
+            return "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled", detail
         elif "9B" in alias:
             return "Qwen3.5-9B", "8.95B dense · Q4_K_M"
         return alias.replace(".gguf", "").split("/")[-1], "local"
@@ -543,11 +590,13 @@ def stream_llm(messages):
 
     with urllib.request.urlopen(req, timeout=300) as resp:
         buf = ""
+        decoder = codecs.getincrementaldecoder("utf-8")()
         while True:
-            ch = resp.read(1)
-            if not ch:
+            chunk = resp.read(1024)
+            if not chunk:
+                buf += decoder.decode(b"", final=True)
                 break
-            buf += ch.decode("utf-8", errors="replace")
+            buf += decoder.decode(chunk)
             while "\n" in buf:
                 line, buf = buf.split("\n", 1)
                 line = line.strip()
@@ -720,7 +769,7 @@ COMMANDS = [
     ("/bench",       "Run a quick speed benchmark"),
     ("/clear",       "Clear conversation and start fresh"),
     ("/stats",       "Show session statistics"),
-    ("/model",       "Show or switch model — /model 9b or /model 35b"),
+    ("/model",       "Show or switch model — /model 9b, /model 27b, /model 35b"),
     ("/auto",        "Toggle smart auto-routing between 9B and 35B"),
     ("/tools",       "List available agent tools"),
     ("/system",      "Set system prompt — /system <message>"),
@@ -835,13 +884,13 @@ def main():
                         else:
                             console.print(f"  [bold red]{msg}[/]\n")
                     else:
-                        console.print(f"  [dim]available: 9b, 35b[/]\n")
+                        console.print(f"  [dim]available: 9b, 27b, 35b[/]\n")
                 else:
                     cur = get_current_model()
                     model_name, model_detail = detect_model()
                     console.print(f"  [bold white]{model_name}[/]  [dim]{model_detail}[/]")
                     console.print(f"  [dim]auto-routing: {'on' if auto_route else 'off'}[/]")
-                    console.print(f"  [dim]switch: /model 9b  or  /model 35b[/]\n")
+                    console.print(f"  [dim]switch: /model 9b  or  /model 27b  or  /model 35b[/]\n")
                 continue
 
             elif exact == "/auto":
